@@ -1,32 +1,28 @@
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <cmath>
+#include <cstring>
 #include "mpi.h"
 using namespace std;
 
-void kmeans(int k, int rank)
+string kmeans(int k, int rank, double data[][3], int numPoints)
 {
-    int maxM = 9;
     int maxAttrib = 2;
     int maxC = k;
 
-    double myData[maxM][maxAttrib + 2];
-    double myDataTemp[maxM][maxAttrib + 2];
+    double myData[numPoints][maxAttrib + 2];
+    double myDataTemp[numPoints][maxAttrib + 2];
     double myCs[maxC][maxAttrib + 1];
     double myClog[maxC][maxAttrib + 1];
 
-    // Fill data
-    myData[0][0] = 1.0; myData[0][1] = 0.8; myData[0][2] = 1.8;
-    myData[1][0] = 2.0; myData[1][1] = 1.1; myData[1][2] = 1.3;
-    myData[2][0] = 3.0; myData[2][1] = 0.8; myData[2][2] = 0.9;
-    myData[3][0] = 4.0; myData[3][1] = 1.0; myData[3][2] = 0.8;
-    myData[4][0] = 5.0; myData[4][1] = 1.4; myData[4][2] = 1.2;
-    myData[5][0] = 6.0; myData[5][1] = 1.5; myData[5][2] = 1.3;
-    myData[6][0] = 7.0; myData[6][1] = 1.1; myData[6][2] = 0.7;
-    myData[7][0] = 8.0; myData[7][1] = 0.5; myData[7][2] = 1.8;
-    myData[8][0] = 9.0; myData[8][1] = 1.5; myData[8][2] = 1.2;
+    for (int i = 0; i < numPoints; i++) {
+        myData[i][0] = data[i][0];
+        myData[i][1] = data[i][1];
+        myData[i][2] = data[i][2];
+    }
 
-    for (int i = 0; i < maxM; i++) {
+    for (int i = 0; i < numPoints; i++) {
         myDataTemp[i][0] = i + 1;
         for (int j = 1; j <= maxAttrib + 1; j++) {
             myDataTemp[i][j] = 0;
@@ -36,7 +32,7 @@ void kmeans(int k, int rank)
     for (int i = 0; i < maxC; i++) {
         for (int j = 0; j < maxAttrib + 1; j++) {
             myClog[i][j] = 0;
-            myCs[i][j] = myData[i][j];
+            myCs[i][j] = myData[i % numPoints][j];
         }
     }
 
@@ -44,7 +40,7 @@ void kmeans(int k, int rank)
     int it = 0;
 
     do {
-        for (int i = 0; i < maxM; i++) {
+        for (int i = 0; i < numPoints; i++) {
             for (int j = 1; j <= maxC; j++) {
                 double sumValue = 0;
                 for (int t = 1; t <= maxAttrib; t++) {
@@ -54,7 +50,7 @@ void kmeans(int k, int rank)
             }
         }
 
-        for (int i = 0; i < maxM; i++) {
+        for (int i = 0; i < numPoints; i++) {
             double minVal = myDataTemp[i][1];
             int minPos = 1;
             for (int j = 2; j <= maxC; j++) {
@@ -70,7 +66,7 @@ void kmeans(int k, int rank)
             for (int atrib = 1; atrib <= maxAttrib; atrib++) {
                 double sum = 0;
                 int count = 0;
-                for (int i = 0; i < maxM; i++) {
+                for (int i = 0; i < numPoints; i++) {
                     if ((int)myData[i][maxAttrib + 1] == cent) {
                         sum += myData[i][atrib];
                         count++;
@@ -98,7 +94,7 @@ void kmeans(int k, int rank)
     result << "\n>>> Resultados del nodo " << rank << " (k=" << k << "):\n";
     for (int clu = 0; clu < maxC; clu++) {
         result << "Cluster " << clu + 1 << ": ";
-        for (int i = 0; i < maxM; i++) {
+        for (int i = 0; i < numPoints; i++) {
             if ((int)myData[i][maxAttrib + 1] == clu + 1) {
                 result << myData[i][0] << " ";
             }
@@ -106,7 +102,7 @@ void kmeans(int k, int rank)
         result << "\n";
     }
 
-    cout << result.str() << flush;
+    return result.str();
 }
 
 int main(int argc, char *argv[])
@@ -116,15 +112,59 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    cout << "Nodo " << rank << " iniciado..." << endl << flush;
+    const int maxM = 9;
+    const int maxAttrib = 2;
+    const int cols = maxAttrib + 1;
 
-    int k = rank + 2; // Por ejemplo: nodo 0 usa k=2, nodo 1 usa k=3
-    kmeans(k, rank);
+    double fullData[maxM][cols] = {
+        {1.0, 0.8, 1.8},
+        {2.0, 1.1, 1.3},
+        {3.0, 0.8, 0.9},
+        {4.0, 1.0, 0.8},
+        {5.0, 1.4, 1.2},
+        {6.0, 1.5, 1.3},
+        {7.0, 1.1, 0.7},
+        {8.0, 0.5, 1.8},
+        {9.0, 1.5, 1.2}
+    };
 
-    MPI_Barrier(MPI_COMM_WORLD); // Espera a que todos terminen
-    cout << "Nodo " << rank << " finalizado." << endl << flush;
+    double localData[5][cols];
+    int localCount;
 
+    if (rank == 0) {
+        for (int i = 0; i < 5; i++)
+            for (int j = 0; j < cols; j++)
+                localData[i][j] = fullData[i][j];
+        localCount = 5;
+
+        MPI_Send(fullData[5], 4 * cols, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
+    } else if (rank == 1) {
+        MPI_Recv(localData, 4 * cols, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        localCount = 4;
+    }
+
+    int k = rank + 2;
+    string localResult = kmeans(k, rank, localData, localCount);
+
+    if (rank == 1) {
+        int len = localResult.size();
+        MPI_Send(&len, 1, MPI_INT, 0, 1, MPI_COMM_WORLD);
+        MPI_Send(localResult.c_str(), len, MPI_CHAR, 0, 2, MPI_COMM_WORLD);
+    } else if (rank == 0) {
+        cout << localResult << flush;
+
+        int recvLen;
+        MPI_Recv(&recvLen, 1, MPI_INT, 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        char *recvBuf = new char[recvLen + 1];
+        MPI_Recv(recvBuf, recvLen, MPI_CHAR, 1, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        recvBuf[recvLen] = '\0';
+
+        cout << recvBuf << flush;
+        delete[] recvBuf;
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;
 }
-
